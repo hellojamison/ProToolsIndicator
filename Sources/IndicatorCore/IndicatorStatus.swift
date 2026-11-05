@@ -22,12 +22,43 @@ public struct QueueRequest: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public enum SessionCloseout: String, Codable, CaseIterable, Sendable {
+    case noSession = "no-session"
+    case savedAndClosed = "saved-and-closed"
+    case noSaveNeededAndClosed = "no-save-needed-and-closed"
+    case leftOpenNeedsSave = "left-open-needs-save"
+    case leftOpenNoSaveNeeded = "left-open-no-save-needed"
+
+    public var summary: String {
+        switch self {
+        case .noSession: "No session was open."
+        case .savedAndClosed: "Session needed saving; saved and closed."
+        case .noSaveNeededAndClosed: "Session did not need saving; closed."
+        case .leftOpenNeedsSave: "Session left open; it still needs saving."
+        case .leftOpenNoSaveNeeded: "Session left open; it did not need saving."
+        }
+    }
+}
+
+public struct SessionCloseoutReport: Codable, Equatable, Sendable {
+    public var releasedBy: String?
+    public var outcome: SessionCloseout
+    public var releasedAt: Date
+
+    public init(releasedBy: String?, outcome: SessionCloseout, releasedAt: Date = .now) {
+        self.releasedBy = releasedBy
+        self.outcome = outcome
+        self.releasedAt = releasedAt
+    }
+}
+
 public struct IndicatorStatus: Codable, Equatable, Sendable {
     public var inUse: Bool
     public var who: String?
     public var activeTicket: String?
     public var activeEstimatedMinutes: Int?
     public var queue: [QueueRequest]
+    public var lastCloseout: SessionCloseoutReport?
     public var updatedAt: Date
 
     public init(
@@ -36,6 +67,7 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
         activeTicket: String? = nil,
         activeEstimatedMinutes: Int? = nil,
         queue: [QueueRequest] = [],
+        lastCloseout: SessionCloseoutReport? = nil,
         updatedAt: Date = .now
     ) {
         self.inUse = inUse
@@ -43,6 +75,7 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
         self.activeTicket = activeTicket
         self.activeEstimatedMinutes = activeEstimatedMinutes
         self.queue = queue
+        self.lastCloseout = lastCloseout
         self.updatedAt = updatedAt
     }
 
@@ -52,6 +85,7 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
         case activeTicket
         case activeEstimatedMinutes
         case queue
+        case lastCloseout
         case updatedAt
     }
 
@@ -62,6 +96,7 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
         activeTicket = try values.decodeIfPresent(String.self, forKey: .activeTicket)
         activeEstimatedMinutes = try values.decodeIfPresent(Int.self, forKey: .activeEstimatedMinutes)
         queue = try values.decodeIfPresent([QueueRequest].self, forKey: .queue) ?? []
+        lastCloseout = try values.decodeIfPresent(SessionCloseoutReport.self, forKey: .lastCloseout)
         updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
     }
 }
@@ -147,19 +182,34 @@ public enum IndicatorStore {
         return QueueRequestResult(ticket: ticket, position: position)
     }
 
+    /// Updates the remaining-time estimate reported by the active ticket owner.
+    public static func updateETA(ticket: String, minutes: Int?) throws {
+        if let minutes, !(1...1440).contains(minutes) {
+            throw IndicatorStoreError.invalidEstimate
+        }
+        try withLockedStatus { status in
+            guard status.inUse, status.activeTicket == ticket else {
+                throw IndicatorStoreError.ticketDoesNotOwnTurn
+            }
+            status.activeEstimatedMinutes = minutes
+        }
+    }
+
     /// Releases a CLI-owned turn. A ticket is required when the current turn came from the CLI queue.
-    public static func release(ticket: String? = nil) throws {
+    public static func release(ticket: String? = nil, closeout: SessionCloseout) throws {
         try withLockedStatus { status in
             if status.activeTicket != ticket {
                 throw IndicatorStoreError.ticketDoesNotOwnTurn
             }
+            status.lastCloseout = SessionCloseoutReport(releasedBy: status.who, outcome: closeout)
             Self.advance(&status)
         }
     }
 
     /// Menu bar control for a person physically at the Mac.
-    public static func releaseCurrent() throws {
+    public static func releaseCurrent(closeout: SessionCloseout) throws {
         try withLockedStatus { status in
+            status.lastCloseout = SessionCloseoutReport(releasedBy: status.who, outcome: closeout)
             Self.advance(&status)
         }
     }

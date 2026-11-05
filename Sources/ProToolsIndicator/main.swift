@@ -58,6 +58,7 @@ final class IndicatorModel: ObservableObject {
     @Published var enteredName = ""
     @Published var estimateText = ""
     @Published private(set) var message: String?
+    @Published var showingCloseout = false
     private var timer: AnyCancellable?
     private var runningApplicationsObserver: AnyCancellable?
 
@@ -91,6 +92,20 @@ final class IndicatorModel: ObservableObject {
         return minutes
     }
 
+    func queueStartETAMinutes(for index: Int) -> Int? {
+        guard status.queue.indices.contains(index) else { return nil }
+        var eta = status.inUse ? status.activeEstimatedMinutes : 0
+        if status.inUse && eta == nil { return nil }
+        for priorIndex in 0..<index {
+            guard let currentETA = eta,
+                  let duration = status.queue[priorIndex].estimatedMinutes else {
+                return nil
+            }
+            eta = currentETA + duration
+        }
+        return eta
+    }
+
     func requestAccess() {
         let who = enteredName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !who.isEmpty else { return }
@@ -114,9 +129,9 @@ final class IndicatorModel: ObservableObject {
         }
     }
 
-    func releaseCurrent() {
+    func releaseCurrent(closeout: SessionCloseout) {
         do {
-            try IndicatorStore.releaseCurrent()
+            try IndicatorStore.releaseCurrent(closeout: closeout)
             refresh()
             message = status.inUse
                 ? "Turn passed to \(status.who ?? "the next person")."
@@ -165,11 +180,16 @@ struct ProToolsIndicatorApp: App {
                     .font(.system(size: 13, weight: .black, design: .rounded))
                     .foregroundStyle(statusColor)
 
-                if model.status.inUse {
-                    let estimate = model.status.activeEstimatedMinutes.map { " · about \($0) min" } ?? ""
-                    Text("Currently using: \(model.status.who ?? "Unknown")\(estimate)")
-                        .font(.system(size: 12, weight: .semibold))
-                }
+                Divider()
+                Text("CURRENT AGENT")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                Text(model.status.inUse ? (model.status.who ?? "Unknown") : "None")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(model.status.inUse
+                     ? model.status.activeEstimatedMinutes.map { "ETA from agent: about \($0) min remaining" } ?? "ETA from agent: not reported"
+                     : "No active agent")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
 
                 if !model.openProToolsVersions.isEmpty {
                     Text("OPEN PRO TOOLS VERSIONS")
@@ -179,6 +199,15 @@ struct ProToolsIndicatorApp: App {
                             .font(.system(size: 12, weight: .medium))
                             .lineLimit(1)
                     }
+                }
+
+                if let report = model.status.lastCloseout {
+                    Text("LAST HANDOFF")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                    Text("\(report.releasedBy ?? "Unknown"): \(report.outcome.summary)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 TextField("Your name or agent", text: $model.enteredName)
@@ -200,19 +229,31 @@ struct ProToolsIndicatorApp: App {
                 .disabled(!model.canMarkInUse)
 
                 if model.status.inUse {
-                    Button("Release and Call Next") { model.releaseCurrent() }
+                    Button("Release and Call Next") { model.showingCloseout = true }
                 }
 
-                if !model.status.queue.isEmpty {
-                    Divider()
-                    Text("WAITING QUEUE · \(model.status.queue.count)")
-                        .font(.system(size: 11, weight: .black, design: .rounded))
+                Divider()
+                Text("QUEUE · \(model.status.queue.count)")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                if model.status.queue.isEmpty {
+                    Text("No agents waiting")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                } else {
                     ForEach(model.status.queue.indices, id: \.self) { index in
                         let request = model.status.queue[index]
-                        let estimate = request.estimatedMinutes.map { "\($0) min" } ?? "no estimate"
                         HStack(spacing: 6) {
-                            Text("\(index + 1). \(request.who) · \(estimate)")
-                                .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(index + 1). \(request.who)")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .lineLimit(1)
+                                let startETA = model.queueStartETAMinutes(for: index).map { "starts in about \($0) min" } ?? "start ETA unknown"
+                                let useEstimate = request.estimatedMinutes.map { "use about \($0) min" } ?? "use estimate unknown"
+                                Text("\(startETA) · \(useEstimate)")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                             Spacer(minLength: 4)
                             Button("Remove") { model.removeQueued(ticket: request.ticket) }
                                 .controlSize(.small)
@@ -235,11 +276,27 @@ struct ProToolsIndicatorApp: App {
             }
             .padding(12)
             .frame(width: 260)
+            .confirmationDialog(
+                "Close out your Pro Tools turn",
+                isPresented: $model.showingCloseout,
+                titleVisibility: .visible
+            ) {
+                Button("No Session Open") { model.releaseCurrent(closeout: .noSession) }
+                Button("Saved and Closed") { model.releaseCurrent(closeout: .savedAndClosed) }
+                Button("No Save Needed; Closed") { model.releaseCurrent(closeout: .noSaveNeededAndClosed) }
+                Button("Left Open; Needs Saving") { model.releaseCurrent(closeout: .leftOpenNeedsSave) }
+                Button("Left Open; No Save Needed") { model.releaseCurrent(closeout: .leftOpenNoSaveNeeded) }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Save work you need, then close sessions you opened before releasing Pro Tools. If a session belongs to someone else or cannot be safely closed, leave it open and report that. Be kind, rewind.")
+            }
         } label: {
             Circle()
-                .fill(statusColor)
-                .frame(width: 10, height: 10)
-                .overlay(Circle().strokeBorder(.black.opacity(0.3), lineWidth: 1))
+                .fill(.black.opacity(0.95))
+                .frame(width: 14, height: 14)
+                .overlay(Circle().fill(.white).padding(1))
+                .overlay(Circle().fill(statusColor).padding(2.5))
+                .shadow(color: .black.opacity(0.7), radius: 1, x: 0, y: 1)
                 .padding(.horizontal, 4)
                 .accessibilityLabel(accessibilityStatus)
         }

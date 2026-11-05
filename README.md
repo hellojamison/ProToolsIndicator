@@ -18,26 +18,26 @@ In another terminal, request access and identify the person or agent:
 ./dist/bin/pt-indicator status
 ```
 
-The minutes estimate is optional and means expected Pro Tools usage duration. Waiting requests are ordered shortest estimate first; ties stay FIFO, and requests without an estimate follow estimated requests. Estimates only affect waiting order: they do not interrupt a current user or enforce a time limit, so long tasks can wait behind shorter ones.
+The optional `--minutes` value is the agent's expected Pro Tools work duration. Waiting requests are ordered shortest estimate first; ties stay FIFO, and requests without an estimate follow estimated requests. When a request is granted, the same value starts as that agent's ETA. Update it while working with `pt-indicator eta <ticket> <minutes|unknown>`; the ETA is a self-reported estimate, not a countdown or time limit.
 
-If Pro Tools is busy, `request` adds the caller to the queue and prints its ticket and position. `wait <ticket>` blocks until the turn is granted; `release <ticket>` releases the turn and automatically hands Pro Tools to the next queued caller. `cancel <ticket>` removes a waiting request, and `status` shows the current user and full queue with estimates. The menu bar popover shows running Pro Tools versions and the queue, and lets the local user remove waiting entries or release to the next person. An open app is shown separately from a reservation, so the queue can hand a turn to an agent using an already-open session.
+If Pro Tools is busy, `request` adds the caller to the queue and prints its ticket and position. `wait <ticket>` blocks until the turn is granted. `status` shows the current agent and their reported remaining-time ETA, plus each queued agent's projected start ETA and expected work duration. Queue ETAs are projections from agent estimates, not guarantees. Release requires a closeout report, for example `release <ticket> --closeout saved-and-closed`; the report is saved and shown in `status` so the next person can see whether the session was saved and closed. The available closeout values are `no-session`, `saved-and-closed`, `no-save-needed-and-closed`, `left-open-needs-save`, and `left-open-no-save-needed`. Save needed work and close sessions you opened when finished. Preserve someone else's session or unsaved work; if a session cannot safely be closed, report the matching left-open state. `cancel <ticket>` removes a waiting request. The menu bar popover shows the current agent, their ETA, the waiting queue, and open Pro Tools versions. It lets the local user remove waiting entries or release to the next person with the same closeout report. An open app is shown separately from a reservation, so the queue can hand Pro Tools to an agent using an already-open session.
 
-For scripts, request a ticket, wait if queued, and release the ticket in a cleanup trap:
+For scripts, request a ticket, wait if queued, do the Pro Tools work, close out the session, and report the outcome when releasing:
 
 ```sh
 set -e
 reservation=$(./dist/bin/pt-indicator request --minutes 5 "Claude")
 ticket=${reservation##*ticket=}
-cleanup() {
-  ./dist/bin/pt-indicator release "$ticket" >/dev/null 2>&1 \
-    || ./dist/bin/pt-indicator cancel "$ticket" >/dev/null 2>&1 \
-    || true
-}
-trap cleanup EXIT
 case "$reservation" in
   queued*) ./dist/bin/pt-indicator wait "$ticket" ;;
 esac
 # Agent work that uses Pro Tools
+# Update the reported remaining-time ETA during the turn:
+./dist/bin/pt-indicator eta "$ticket" 3
+# Save if needed, close sessions you opened, then report the truthful closeout:
+./dist/bin/pt-indicator release "$ticket" --closeout saved-and-closed
 ```
+
+Choose the closeout value that matches what actually happened. If a command is interrupted while queued, cancel that waiting ticket. Never use a cleanup trap that releases an active turn without first reporting the session state.
 
 Queue and status are shared through `~/Library/Application Support/ProToolsIndicator/status.json`; a lock file serializes concurrent CLI updates. All commands must run as the same macOS user as the menu bar app. The build script creates an app bundle and a CLI binary under `dist/`. Add `dist/bin` to the agent's `PATH` or call the binary by its full path.

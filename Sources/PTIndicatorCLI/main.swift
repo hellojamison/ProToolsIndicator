@@ -6,7 +6,8 @@ func usage() -> Never {
     Usage:
       pt-indicator request [--minutes <1-1440>] <who>
       pt-indicator wait <ticket>
-      pt-indicator release <ticket>
+      pt-indicator eta <ticket> <minutes|unknown>
+      pt-indicator release <ticket> --closeout <no-session|saved-and-closed|no-save-needed-and-closed|left-open-needs-save|left-open-no-save-needed>
       pt-indicator cancel <ticket>
       pt-indicator status
     """
@@ -21,25 +22,40 @@ func fail(_ error: Error) -> Never {
 
 func printStatus(_ status: IndicatorStatus) {
     if status.inUse {
-        print("Current: \(status.who ?? "Unknown")")
+        print("Current agent: \(status.who ?? "Unknown")")
         if let minutes = status.activeEstimatedMinutes {
-            print("Current estimate: \(minutes) min")
+            print("Current ETA: about \(minutes) min remaining (agent estimate)")
+        } else {
+            print("Current ETA: not reported")
         }
         if let ticket = status.activeTicket {
             print("Active ticket: \(ticket)")
         }
     } else {
-        print("Current: available")
+        print("Current agent: none (available)")
     }
 
     if status.queue.isEmpty {
         print("Waiting queue: empty")
     } else {
         print("Waiting queue:")
+        var minutesUntilStart: Int? = status.inUse ? status.activeEstimatedMinutes : 0
         for (index, request) in status.queue.enumerated() {
-            let estimate = request.estimatedMinutes.map { "\($0) min" } ?? "no estimate"
-            print("\(index + 1). \(request.who) (\(estimate); ticket: \(request.ticket))")
+            let startETA = minutesUntilStart.map { "about \($0) min" } ?? "unknown"
+            let useEstimate = request.estimatedMinutes.map { "\($0) min use estimate" } ?? "no use estimate"
+            print("\(index + 1). \(request.who) (starts in \(startETA); \(useEstimate); ticket: \(request.ticket))")
+            if let current = minutesUntilStart, let duration = request.estimatedMinutes {
+                minutesUntilStart = current + duration
+            } else {
+                minutesUntilStart = nil
+            }
         }
+    }
+
+    if let report = status.lastCloseout {
+        let owner = report.releasedBy ?? "Unknown"
+        let timestamp = ISO8601DateFormatter().string(from: report.releasedAt)
+        print("Last closeout: \(owner) — \(report.outcome.summary) (\(timestamp))")
     }
 }
 
@@ -87,10 +103,30 @@ case "wait":
         Thread.sleep(forTimeInterval: 1)
     }
 
-case "release":
-    guard arguments.count == 2 else { usage() }
+case "eta":
+    guard arguments.count == 3 else { usage() }
+    let ticket = arguments[1]
+    let minutes: Int?
+    if arguments[2] == "unknown" {
+        minutes = nil
+    } else if let parsed = Int(arguments[2]) {
+        minutes = parsed
+    } else {
+        usage()
+    }
     do {
-        try IndicatorStore.release(ticket: arguments[1])
+        try IndicatorStore.updateETA(ticket: ticket, minutes: minutes)
+        printStatus(IndicatorStore.read())
+    } catch {
+        fail(error)
+    }
+
+case "release":
+    guard arguments.count == 4,
+          arguments[2] == "--closeout",
+          let closeout = SessionCloseout(rawValue: arguments[3]) else { usage() }
+    do {
+        try IndicatorStore.release(ticket: arguments[1], closeout: closeout)
         printStatus(IndicatorStore.read())
     } catch {
         fail(error)
