@@ -20,7 +20,7 @@ There is no test target. Verify changes with the package build and, when availab
 
 ## Hard rules
 
-- The indicator is manually controlled. Do not claim it detects Pro Tools sessions or agent activity automatically.
+- Reservation ownership is manually controlled. The app detects open Pro Tools application processes, but does not inspect session content or infer which agent is using Pro Tools.
 - Queue all CLI requests through `IndicatorStore.request`; do not add a direct CLI path that can skip waiting requests.
 - Keep every queue read-modify-write operation inside the file lock so simultaneous agents do not lose queue entries.
 - State is local to the current macOS user in Application Support; do not add a network listener or write outside that location without a clear requirement.

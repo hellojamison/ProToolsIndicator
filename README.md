@@ -1,6 +1,6 @@
 # Pro Tools Indicator
 
-A tiny macOS menu bar light that agents can control with `pt-indicator`. Green means available; red means someone holds the Pro Tools turn. Requests are granted in FIFO order, and the app does not inspect or control Pro Tools automatically.
+A tiny macOS menu bar light that agents can control with `pt-indicator`. Green means available; amber means one or more Pro Tools apps are open; red means someone holds the Pro Tools turn. Requests are granted in FIFO order. The app detects open Pro Tools application versions but does not inspect sessions or control Pro Tools.
 
 ## Build and run
 
@@ -20,7 +20,7 @@ In another terminal, request access and identify the person or agent:
 
 The minutes estimate is optional and means expected Pro Tools usage duration. Waiting requests are ordered shortest estimate first; ties stay FIFO, and requests without an estimate follow estimated requests. Estimates only affect waiting order: they do not interrupt a current user or enforce a time limit, so long tasks can wait behind shorter ones.
 
-If Pro Tools is busy, `request` adds the caller to the queue and prints its ticket and position. `wait <ticket>` blocks until the turn is granted; `release <ticket>` releases the turn and automatically hands Pro Tools to the next queued caller. `cancel <ticket>` removes a waiting request, and `status` shows the current user and full queue with estimates. The menu bar popover shows the queue and lets the local user remove waiting entries or release to the next person.
+If Pro Tools is busy, `request` adds the caller to the queue and prints its ticket and position. `wait <ticket>` blocks until the turn is granted; `release <ticket>` releases the turn and automatically hands Pro Tools to the next queued caller. `cancel <ticket>` removes a waiting request, and `status` shows the current user and full queue with estimates. The menu bar popover shows running Pro Tools versions and the queue, and lets the local user remove waiting entries or release to the next person. An open app is shown separately from a reservation, so the queue can hand a turn to an agent using an already-open session.
 
 For scripts, request a ticket, wait if queued, and release the ticket in a cleanup trap:
 
