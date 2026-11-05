@@ -12,7 +12,7 @@ Small Swift package for a macOS menu bar status light and its agent-facing comma
 
 - Build app and CLI: `./scripts/build-app.sh`
 - Run the menu bar app: `open dist/ProToolsIndicator.app`
-- Control the state: `./dist/bin/pt-indicator on [who]|off|status`
+- Control the queue: `./dist/bin/pt-indicator request <who>|wait <ticket>|release <ticket>|cancel <ticket>|status`
 
 ## Testing and verification
 
@@ -21,5 +21,7 @@ There is no test target. Verify changes with the package build and, when availab
 ## Hard rules
 
 - The indicator is manually controlled. Do not claim it detects Pro Tools sessions or agent activity automatically.
+- Queue all CLI requests through `IndicatorStore.request`; do not add a direct CLI path that can skip waiting requests.
+- Keep every queue read-modify-write operation inside the file lock so simultaneous agents do not lose queue entries.
 - State is local to the current macOS user in Application Support; do not add a network listener or write outside that location without a clear requirement.
 - Do not add credentials or secrets.
