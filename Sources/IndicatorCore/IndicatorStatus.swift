@@ -29,6 +29,10 @@ public enum SessionCloseout: String, Codable, CaseIterable, Sendable {
     case leftOpenNeedsSave = "left-open-needs-save"
     case leftOpenNoSaveNeeded = "left-open-no-save-needed"
 
+    public var requiresReason: Bool {
+        self == .leftOpenNeedsSave || self == .leftOpenNoSaveNeeded
+    }
+
     public var summary: String {
         switch self {
         case .noSession: "No session was open."
@@ -43,12 +47,19 @@ public enum SessionCloseout: String, Codable, CaseIterable, Sendable {
 public struct SessionCloseoutReport: Codable, Equatable, Sendable {
     public var releasedBy: String?
     public var outcome: SessionCloseout
+    public var reason: String?
     public var releasedAt: Date
 
-    public init(releasedBy: String?, outcome: SessionCloseout, releasedAt: Date = .now) {
+    public init(releasedBy: String?, outcome: SessionCloseout, reason: String? = nil, releasedAt: Date = .now) {
         self.releasedBy = releasedBy
         self.outcome = outcome
+        self.reason = reason
         self.releasedAt = releasedAt
+    }
+
+    public var summary: String {
+        guard let reason, !reason.isEmpty else { return outcome.summary }
+        return "\(outcome.summary) Reason: \(reason)"
     }
 }
 
@@ -117,6 +128,8 @@ public enum IndicatorStoreError: Error, LocalizedError {
     case invalidEstimate
     case ticketDoesNotOwnTurn
     case ticketNotFound
+    case closeoutReasonRequired
+    case closeoutReasonNotAllowed
 
     public var errorDescription: String? {
         switch self {
@@ -128,6 +141,10 @@ public enum IndicatorStoreError: Error, LocalizedError {
             return "That ticket does not own the current Pro Tools turn."
         case .ticketNotFound:
             return "That queue ticket is no longer waiting."
+        case .closeoutReasonRequired:
+            return "A specific reason of 8 to 280 characters is required when leaving a Pro Tools session open."
+        case .closeoutReasonNotAllowed:
+            return "A closeout reason is only used when a Pro Tools session is left open."
         }
     }
 }
@@ -196,20 +213,22 @@ public enum IndicatorStore {
     }
 
     /// Releases a CLI-owned turn. A ticket is required when the current turn came from the CLI queue.
-    public static func release(ticket: String? = nil, closeout: SessionCloseout) throws {
+    public static func release(ticket: String? = nil, closeout: SessionCloseout, reason: String? = nil) throws {
+        let closeoutReason = try validatedReason(reason, for: closeout)
         try withLockedStatus { status in
             if status.activeTicket != ticket {
                 throw IndicatorStoreError.ticketDoesNotOwnTurn
             }
-            status.lastCloseout = SessionCloseoutReport(releasedBy: status.who, outcome: closeout)
+            status.lastCloseout = SessionCloseoutReport(releasedBy: status.who, outcome: closeout, reason: closeoutReason)
             Self.advance(&status)
         }
     }
 
     /// Menu bar control for a person physically at the Mac.
-    public static func releaseCurrent(closeout: SessionCloseout) throws {
+    public static func releaseCurrent(closeout: SessionCloseout, reason: String? = nil) throws {
+        let closeoutReason = try validatedReason(reason, for: closeout)
         try withLockedStatus { status in
-            status.lastCloseout = SessionCloseoutReport(releasedBy: status.who, outcome: closeout)
+            status.lastCloseout = SessionCloseoutReport(releasedBy: status.who, outcome: closeout, reason: closeoutReason)
             Self.advance(&status)
         }
     }
@@ -254,6 +273,20 @@ public enum IndicatorStore {
             status.activeTicket = nil
             status.activeEstimatedMinutes = nil
         }
+    }
+
+    private static func validatedReason(_ reason: String?, for closeout: SessionCloseout) throws -> String? {
+        let normalized = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if closeout.requiresReason {
+            guard let normalized, (8...280).contains(normalized.count) else {
+                throw IndicatorStoreError.closeoutReasonRequired
+            }
+            return normalized
+        }
+        guard normalized == nil || normalized?.isEmpty == true else {
+            throw IndicatorStoreError.closeoutReasonNotAllowed
+        }
+        return nil
     }
 
     private static func readUnlocked() -> IndicatorStatus {

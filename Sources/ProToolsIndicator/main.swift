@@ -59,6 +59,8 @@ final class IndicatorModel: ObservableObject {
     @Published var estimateText = ""
     @Published private(set) var message: String?
     @Published var showingCloseout = false
+    @Published private(set) var pendingCloseout: SessionCloseout?
+    @Published var closeoutReason = ""
     private var timer: AnyCancellable?
     private var runningApplicationsObserver: AnyCancellable?
 
@@ -129,15 +131,43 @@ final class IndicatorModel: ObservableObject {
         }
     }
 
-    func releaseCurrent(closeout: SessionCloseout) {
+    var canConfirmCloseout: Bool {
+        (8...280).contains(closeoutReason.trimmingCharacters(in: .whitespacesAndNewlines).count)
+    }
+
+    func beginCloseout(closeout: SessionCloseout) {
+        guard closeout.requiresReason else {
+            _ = releaseCurrent(closeout: closeout)
+            return
+        }
+        closeoutReason = ""
+        pendingCloseout = closeout
+    }
+
+    func confirmCloseout() {
+        guard let pendingCloseout, canConfirmCloseout else { return }
+        guard releaseCurrent(closeout: pendingCloseout, reason: closeoutReason) else { return }
+        self.pendingCloseout = nil
+        closeoutReason = ""
+    }
+
+    func cancelCloseoutReason() {
+        pendingCloseout = nil
+        closeoutReason = ""
+    }
+
+    @discardableResult
+    private func releaseCurrent(closeout: SessionCloseout, reason: String? = nil) -> Bool {
         do {
-            try IndicatorStore.releaseCurrent(closeout: closeout)
+            try IndicatorStore.releaseCurrent(closeout: closeout, reason: reason)
             refresh()
             message = status.inUse
                 ? "Turn passed to \(status.who ?? "the next person")."
                 : "Pro Tools is available."
+            return true
         } catch {
             message = error.localizedDescription
+            return false
         }
     }
 
@@ -222,7 +252,7 @@ struct ProToolsIndicatorApp: App {
                 if let report = model.status.lastCloseout {
                     Text("LAST HANDOFF")
                         .font(.system(size: 10, weight: .black, design: .rounded))
-                    Text("\(report.releasedBy ?? "Unknown"): \(report.outcome.summary)")
+                    Text("\(report.releasedBy ?? "Unknown"): \(report.summary)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -251,6 +281,23 @@ struct ProToolsIndicatorApp: App {
 
                 if model.status.inUse {
                     Button("Release and Call Next") { model.showingCloseout = true }
+                }
+
+                if let pendingCloseout = model.pendingCloseout {
+                    Divider()
+                    Text(pendingCloseout == .leftOpenNeedsSave
+                         ? "Why does this session need to stay open?"
+                         : "Why must this session stay open?")
+                        .font(.system(size: 11, weight: .semibold))
+                    TextField("Specific reason (8–280 characters)", text: $model.closeoutReason)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { model.confirmCloseout() }
+                    HStack {
+                        Button("Cancel") { model.cancelCloseoutReason() }
+                        Spacer()
+                        Button("Release turn") { model.confirmCloseout() }
+                            .disabled(!model.canConfirmCloseout)
+                    }
                 }
 
                 Divider()
@@ -302,14 +349,14 @@ struct ProToolsIndicatorApp: App {
                 isPresented: $model.showingCloseout,
                 titleVisibility: .visible
             ) {
-                Button("No Session Open") { model.releaseCurrent(closeout: .noSession) }
-                Button("Saved and Closed") { model.releaseCurrent(closeout: .savedAndClosed) }
-                Button("No Save Needed; Closed") { model.releaseCurrent(closeout: .noSaveNeededAndClosed) }
-                Button("Left Open; Needs Saving") { model.releaseCurrent(closeout: .leftOpenNeedsSave) }
-                Button("Left Open; No Save Needed") { model.releaseCurrent(closeout: .leftOpenNoSaveNeeded) }
+                Button("No Session Open") { model.beginCloseout(closeout: .noSession) }
+                Button("Saved and Closed") { model.beginCloseout(closeout: .savedAndClosed) }
+                Button("No Save Needed; Closed") { model.beginCloseout(closeout: .noSaveNeededAndClosed) }
+                Button("Left Open; Needs Saving") { model.beginCloseout(closeout: .leftOpenNeedsSave) }
+                Button("Left Open; No Save Needed") { model.beginCloseout(closeout: .leftOpenNoSaveNeeded) }
                 Button("Cancel", role: .cancel) { }
             } message: {
-                Text("Save work you need, then close sessions you opened before releasing Pro Tools. If a session belongs to someone else or cannot be safely closed, leave it open and report that. Be kind, rewind.")
+                Text("Save needed work, close sessions you opened, and verify they are closed before release. Preserve other people's sessions and uncertain unsaved work. Leaving a session open requires a specific reason. Be kind, rewind.")
             }
         } label: {
             HStack(spacing: 6) {

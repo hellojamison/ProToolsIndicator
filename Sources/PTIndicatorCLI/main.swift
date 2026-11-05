@@ -7,12 +7,13 @@ func usage() -> Never {
       pt-indicator request [--minutes <1-1440>] <agent-and-chat-title>
       pt-indicator wait <ticket>
       pt-indicator eta <ticket> <minutes|unknown>
-      pt-indicator release <ticket> --closeout <no-session|saved-and-closed|no-save-needed-and-closed|left-open-needs-save|left-open-no-save-needed>
+      pt-indicator release <ticket> --closeout <outcome> [--reason "why the session must stay open"]
       pt-indicator cancel <ticket>
       pt-indicator status
 
     Identify yourself and include the exact current chat title, for example:
       pt-indicator request --minutes 5 "Codex: Improve menu bar icon"
+    A specific --reason (8-280 characters) is required for either left-open closeout outcome.
     """
     FileHandle.standardError.write(Data((help + "\n").utf8))
     exit(2)
@@ -58,7 +59,7 @@ func printStatus(_ status: IndicatorStatus) {
     if let report = status.lastCloseout {
         let owner = report.releasedBy ?? "Unknown"
         let timestamp = ISO8601DateFormatter().string(from: report.releasedAt)
-        print("Last closeout: \(owner) — \(report.outcome.summary) (\(timestamp))")
+        print("Last closeout: \(owner) — \(report.summary) (\(timestamp))")
     }
 }
 
@@ -125,11 +126,16 @@ case "eta":
     }
 
 case "release":
-    guard arguments.count == 4,
+    guard arguments.count == 4 || arguments.count == 6,
           arguments[2] == "--closeout",
           let closeout = SessionCloseout(rawValue: arguments[3]) else { usage() }
+    var reason: String?
+    if arguments.count == 6 {
+        guard arguments[4] == "--reason" else { usage() }
+        reason = arguments[5]
+    }
     do {
-        try IndicatorStore.release(ticket: arguments[1], closeout: closeout)
+        try IndicatorStore.release(ticket: arguments[1], closeout: closeout, reason: reason)
         printStatus(IndicatorStore.read())
     } catch {
         fail(error)
