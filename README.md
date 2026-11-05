@@ -11,10 +11,10 @@ Requires macOS 13 or later and Swift 6.
 open dist/ProToolsIndicator.app
 ```
 
-In another terminal, request access and identify the person or agent:
+In another terminal, request access and identify the agent plus the exact current chat title:
 
 ```sh
-./dist/bin/pt-indicator request --minutes 5 "Claude"
+./dist/bin/pt-indicator request --minutes 5 "Claude: Improve menu bar icon"
 ./dist/bin/pt-indicator status
 ```
 
@@ -26,7 +26,7 @@ For scripts, request a ticket, wait if queued, do the Pro Tools work, close out 
 
 ```sh
 set -e
-reservation=$(./dist/bin/pt-indicator request --minutes 5 "Claude")
+reservation=$(./dist/bin/pt-indicator request --minutes 5 "Claude: Improve menu bar icon")
 ticket=${reservation##*ticket=}
 case "$reservation" in
   queued*) ./dist/bin/pt-indicator wait "$ticket" ;;

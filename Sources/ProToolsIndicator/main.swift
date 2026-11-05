@@ -163,9 +163,6 @@ struct ProToolsIndicatorApp: App {
         if model.status.inUse {
             return Color(red: 0.84, green: 0.00, blue: 0.10)
         }
-        if !model.openProToolsVersions.isEmpty {
-            return Color(red: 0.78, green: 0.36, blue: 0.00)
-        }
         return Color(red: 0.03, green: 0.48, blue: 0.13)
     }
 
@@ -173,8 +170,6 @@ struct ProToolsIndicatorApp: App {
         let color: NSColor
         if model.status.inUse {
             color = NSColor(calibratedRed: 0.98, green: 0.08, blue: 0.18, alpha: 1)
-        } else if !model.openProToolsVersions.isEmpty {
-            color = NSColor(calibratedRed: 1, green: 0.58, blue: 0.04, alpha: 1)
         } else {
             color = NSColor(calibratedRed: 0.05, green: 0.82, blue: 0.22, alpha: 1)
         }
@@ -233,9 +228,12 @@ struct ProToolsIndicatorApp: App {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                TextField("Your name or agent", text: $model.enteredName)
+                TextField("Agent: exact chat title", text: $model.enteredName)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { model.requestAccess() }
+                Text("Include your agent name and current chat title so status identifies this conversation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 TextField("Estimated Pro Tools time (minutes)", text: $model.estimateText)
                     .textFieldStyle(.roundedBorder)

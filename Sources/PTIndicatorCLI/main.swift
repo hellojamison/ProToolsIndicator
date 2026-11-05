@@ -4,12 +4,15 @@ import IndicatorCore
 func usage() -> Never {
     let help = """
     Usage:
-      pt-indicator request [--minutes <1-1440>] <who>
+      pt-indicator request [--minutes <1-1440>] <agent-and-chat-title>
       pt-indicator wait <ticket>
       pt-indicator eta <ticket> <minutes|unknown>
       pt-indicator release <ticket> --closeout <no-session|saved-and-closed|no-save-needed-and-closed|left-open-needs-save|left-open-no-save-needed>
       pt-indicator cancel <ticket>
       pt-indicator status
+
+    Identify yourself and include the exact current chat title, for example:
+      pt-indicator request --minutes 5 "Codex: Improve menu bar icon"
     """
     FileHandle.standardError.write(Data((help + "\n").utf8))
     exit(2)
