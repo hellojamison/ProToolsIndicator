@@ -4,13 +4,20 @@ import Foundation
 public struct QueueRequest: Codable, Equatable, Identifiable, Sendable {
     public var ticket: String
     public var who: String
+    public var estimatedMinutes: Int?
     public var requestedAt: Date
 
     public var id: String { ticket }
 
-    public init(ticket: String, who: String, requestedAt: Date = .now) {
+    public init(
+        ticket: String,
+        who: String,
+        estimatedMinutes: Int? = nil,
+        requestedAt: Date = .now
+    ) {
         self.ticket = ticket
         self.who = who
+        self.estimatedMinutes = estimatedMinutes
         self.requestedAt = requestedAt
     }
 }
@@ -19,6 +26,7 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
     public var inUse: Bool
     public var who: String?
     public var activeTicket: String?
+    public var activeEstimatedMinutes: Int?
     public var queue: [QueueRequest]
     public var updatedAt: Date
 
@@ -26,12 +34,14 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
         inUse: Bool,
         who: String? = nil,
         activeTicket: String? = nil,
+        activeEstimatedMinutes: Int? = nil,
         queue: [QueueRequest] = [],
         updatedAt: Date = .now
     ) {
         self.inUse = inUse
         self.who = who
         self.activeTicket = activeTicket
+        self.activeEstimatedMinutes = activeEstimatedMinutes
         self.queue = queue
         self.updatedAt = updatedAt
     }
@@ -40,6 +50,7 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
         case inUse
         case who
         case activeTicket
+        case activeEstimatedMinutes
         case queue
         case updatedAt
     }
@@ -49,6 +60,7 @@ public struct IndicatorStatus: Codable, Equatable, Sendable {
         inUse = try values.decodeIfPresent(Bool.self, forKey: .inUse) ?? false
         who = try values.decodeIfPresent(String.self, forKey: .who)
         activeTicket = try values.decodeIfPresent(String.self, forKey: .activeTicket)
+        activeEstimatedMinutes = try values.decodeIfPresent(Int.self, forKey: .activeEstimatedMinutes)
         queue = try values.decodeIfPresent([QueueRequest].self, forKey: .queue) ?? []
         updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
     }
@@ -67,6 +79,7 @@ public struct QueueRequestResult: Sendable {
 
 public enum IndicatorStoreError: Error, LocalizedError {
     case emptyName
+    case invalidEstimate
     case ticketDoesNotOwnTurn
     case ticketNotFound
 
@@ -74,6 +87,8 @@ public enum IndicatorStoreError: Error, LocalizedError {
         switch self {
         case .emptyName:
             return "Enter a name before requesting Pro Tools."
+        case .invalidEstimate:
+            return "Estimated time must be a whole number of minutes from 1 to 1440."
         case .ticketDoesNotOwnTurn:
             return "That ticket does not own the current Pro Tools turn."
         case .ticketNotFound:
@@ -100,9 +115,12 @@ public enum IndicatorStore {
         readUnlocked()
     }
 
-    public static func request(who: String) throws -> QueueRequestResult {
+    public static func request(who: String, estimatedMinutes: Int? = nil) throws -> QueueRequestResult {
         let name = who.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw IndicatorStoreError.emptyName }
+        if let estimatedMinutes, !(1...1440).contains(estimatedMinutes) {
+            throw IndicatorStoreError.invalidEstimate
+        }
 
         let ticket = UUID().uuidString.lowercased()
         let position = try withLockedStatus { status -> Int in
@@ -110,11 +128,21 @@ public enum IndicatorStore {
                 status.inUse = true
                 status.who = name
                 status.activeTicket = ticket
+                status.activeEstimatedMinutes = estimatedMinutes
                 return 0
             }
 
-            status.queue.append(QueueRequest(ticket: ticket, who: name))
-            return status.queue.count
+            let request = QueueRequest(
+                ticket: ticket,
+                who: name,
+                estimatedMinutes: estimatedMinutes
+            )
+            let priority = estimatedMinutes ?? Int.max
+            let insertionIndex = status.queue.firstIndex {
+                ($0.estimatedMinutes ?? Int.max) > priority
+            } ?? status.queue.endIndex
+            status.queue.insert(request, at: insertionIndex)
+            return insertionIndex + 1
         }
         return QueueRequestResult(ticket: ticket, position: position)
     }
@@ -158,6 +186,7 @@ public enum IndicatorStore {
             status.inUse = true
             status.who = name
             status.activeTicket = nil
+            status.activeEstimatedMinutes = nil
             return true
         }
     }
@@ -168,10 +197,12 @@ public enum IndicatorStore {
             status.inUse = true
             status.who = next.who
             status.activeTicket = next.ticket
+            status.activeEstimatedMinutes = next.estimatedMinutes
         } else {
             status.inUse = false
             status.who = nil
             status.activeTicket = nil
+            status.activeEstimatedMinutes = nil
         }
     }
 

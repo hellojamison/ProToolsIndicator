@@ -12,7 +12,7 @@ Small Swift package for a macOS menu bar status light and its agent-facing comma
 
 - Build app and CLI: `./scripts/build-app.sh`
 - Run the menu bar app: `open dist/ProToolsIndicator.app`
-- Control the queue: `./dist/bin/pt-indicator request <who>|wait <ticket>|release <ticket>|cancel <ticket>|status`
+- Control the queue: `./dist/bin/pt-indicator request [--minutes <1-1440>] <who>|wait <ticket>|release <ticket>|cancel <ticket>|status`
 
 ## Testing and verification
 

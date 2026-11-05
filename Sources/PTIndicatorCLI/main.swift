@@ -4,7 +4,7 @@ import IndicatorCore
 func usage() -> Never {
     let help = """
     Usage:
-      pt-indicator request <who>
+      pt-indicator request [--minutes <1-1440>] <who>
       pt-indicator wait <ticket>
       pt-indicator release <ticket>
       pt-indicator cancel <ticket>
@@ -22,6 +22,9 @@ func fail(_ error: Error) -> Never {
 func printStatus(_ status: IndicatorStatus) {
     if status.inUse {
         print("Current: \(status.who ?? "Unknown")")
+        if let minutes = status.activeEstimatedMinutes {
+            print("Current estimate: \(minutes) min")
+        }
         if let ticket = status.activeTicket {
             print("Active ticket: \(ticket)")
         }
@@ -34,7 +37,8 @@ func printStatus(_ status: IndicatorStatus) {
     } else {
         print("Waiting queue:")
         for (index, request) in status.queue.enumerated() {
-            print("\(index + 1). \(request.who) (ticket: \(request.ticket))")
+            let estimate = request.estimatedMinutes.map { "\($0) min" } ?? "no estimate"
+            print("\(index + 1). \(request.who) (\(estimate); ticket: \(request.ticket))")
         }
     }
 }
@@ -44,14 +48,24 @@ guard let command = arguments.first else { usage() }
 
 switch command {
 case "request":
-    guard arguments.count >= 2 else { usage() }
-    let who = arguments.dropFirst().joined(separator: " ")
+    var requestArguments = Array(arguments.dropFirst())
+    var estimatedMinutes: Int?
+    if requestArguments.first == "--minutes" {
+        guard requestArguments.count >= 3,
+              let minutes = Int(requestArguments[1]),
+              (1...1440).contains(minutes) else { usage() }
+        estimatedMinutes = minutes
+        requestArguments.removeFirst(2)
+    }
+    guard !requestArguments.isEmpty else { usage() }
+    let who = requestArguments.joined(separator: " ")
     do {
-        let result = try IndicatorStore.request(who: who)
+        let result = try IndicatorStore.request(who: who, estimatedMinutes: estimatedMinutes)
+        let estimate = estimatedMinutes.map { " estimate=\($0)m" } ?? ""
         if result.position == 0 {
-            print("granted ticket=\(result.ticket)")
+            print("granted\(estimate) ticket=\(result.ticket)")
         } else {
-            print("queued position=\(result.position) ticket=\(result.ticket)")
+            print("queued position=\(result.position)\(estimate) ticket=\(result.ticket)")
         }
     } catch {
         fail(error)
