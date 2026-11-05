@@ -6,16 +6,35 @@ import SwiftUI
 @MainActor
 final class IndicatorModel: ObservableObject {
     @Published private(set) var status = IndicatorStore.read()
+    @Published var enteredName = IndicatorStore.read().who ?? ""
     private var timer: AnyCancellable?
 
     init() {
         timer = Timer.publish(every: 0.35, on: .main, in: .common)
             .autoconnect()
-            .sink { [weak self] _ in self?.status = IndicatorStore.read() }
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let latest = IndicatorStore.read()
+                if latest.who != self.status.who {
+                    self.enteredName = latest.who ?? ""
+                }
+                self.status = latest
+            }
     }
 
-    func set(inUse: Bool) {
-        try? IndicatorStore.set(inUse: inUse)
+    var canMarkInUse: Bool {
+        !enteredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func markInUse() {
+        let who = enteredName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !who.isEmpty else { return }
+        try? IndicatorStore.set(inUse: true, who: who)
+        status = IndicatorStore.read()
+    }
+
+    func markAvailable() {
+        try? IndicatorStore.set(inUse: false)
         status = IndicatorStore.read()
     }
 }
@@ -36,17 +55,39 @@ struct ProToolsIndicatorApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text(model.status.inUse ? "PRO TOOLS IN USE" : "PRO TOOLS AVAILABLE")
-                .font(.system(size: 13, weight: .black, design: .rounded))
-                .foregroundStyle(statusColor)
-                .padding(.vertical, 2)
-            Divider()
-            Button("Mark In Use") { model.set(inUse: true) }
-                .disabled(model.status.inUse)
-            Button("Mark Available") { model.set(inUse: false) }
-                .disabled(!model.status.inUse)
-            Divider()
-            Button("Quit") { NSApplication.shared.terminate(nil) }
+            VStack(alignment: .leading, spacing: 10) {
+                Text(model.status.inUse ? "PRO TOOLS IN USE" : "PRO TOOLS AVAILABLE")
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .foregroundStyle(statusColor)
+
+                if model.status.inUse, let who = model.status.who, !who.isEmpty {
+                    Text("Currently using: \(who)")
+                        .font(.system(size: 12, weight: .semibold))
+                } else {
+                    Text("Who is using Pro Tools?")
+                        .font(.system(size: 12, weight: .medium))
+                }
+
+                TextField("Name or agent", text: $model.enteredName)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { model.markInUse() }
+
+                HStack {
+                    Button(model.status.inUse ? "Update User" : "Mark In Use") {
+                        model.markInUse()
+                    }
+                    .disabled(!model.canMarkInUse)
+
+                    if model.status.inUse {
+                        Button("Mark Available") { model.markAvailable() }
+                    }
+                }
+
+                Divider()
+                Button("Quit") { NSApplication.shared.terminate(nil) }
+            }
+            .padding(12)
+            .frame(width: 260)
         } label: {
             HStack(spacing: 5) {
                 Circle()
@@ -62,6 +103,6 @@ struct ProToolsIndicatorApp: App {
             .background(statusColor, in: Capsule())
             .accessibilityLabel(model.status.inUse ? "Pro Tools in use" : "Pro Tools available")
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 }

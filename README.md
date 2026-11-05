@@ -11,18 +11,18 @@ Requires macOS 13 or later and Swift 6.
 open dist/ProToolsIndicator.app
 ```
 
-In another terminal, control the light:
+In another terminal, control the light and record who is using Pro Tools:
 
 ```sh
-./dist/bin/pt-indicator on
+./dist/bin/pt-indicator on "Claude"
 ./dist/bin/pt-indicator status
 ./dist/bin/pt-indicator off
 ```
 
-The menu bar app also provides “Mark In Use” and “Mark Available.” State is shared through `~/Library/Application Support/ProToolsIndicator/status.json`, so the CLI can be called from any agent script on the same Mac. For scripts, pair `on` with `off` in a cleanup trap so the indicator resets if the work exits early:
+The menu bar popover includes a name field and shows who is currently using Pro Tools. The CLI also accepts a name after `on`, including multi-word names. State is shared through `~/Library/Application Support/ProToolsIndicator/status.json`, so the CLI can be called from any agent script on the same Mac. For scripts, pair `on` with `off` in a cleanup trap so the indicator resets if the work exits early:
 
 ```sh
-./dist/bin/pt-indicator on
+./dist/bin/pt-indicator on "Claude"
 trap './dist/bin/pt-indicator off' EXIT
 # Agent work that uses Pro Tools
 ```
