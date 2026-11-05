@@ -236,52 +236,14 @@ struct ProToolsIndicatorApp: App {
             .padding(12)
             .frame(width: 260)
         } label: {
-            Group {
-                if model.status.inUse {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 9, height: 9)
-                            .overlay(Circle().strokeBorder(.black.opacity(0.28), lineWidth: 1))
-                        Text(menuBarText)
-                            .font(.system(size: 10, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(statusColor, in: Capsule())
-                    .accessibilityLabel(accessibilityStatus)
-                } else if !model.openProToolsVersions.isEmpty {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 9, height: 9)
-                            .overlay(Circle().strokeBorder(.black.opacity(0.28), lineWidth: 1))
-                        Text("PT OPEN")
-                            .font(.system(size: 10, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(statusColor, in: Capsule())
-                    .accessibilityLabel(accessibilityStatus)
-                } else {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 10, height: 10)
-                        .overlay(Circle().strokeBorder(.black.opacity(0.3), lineWidth: 1))
-                        .padding(.horizontal, 4)
-                        .accessibilityLabel(accessibilityStatus)
-                }
-            }
+            Circle()
+                .fill(statusColor)
+                .frame(width: 10, height: 10)
+                .overlay(Circle().strokeBorder(.black.opacity(0.3), lineWidth: 1))
+                .padding(.horizontal, 4)
+                .accessibilityLabel(accessibilityStatus)
         }
         .menuBarExtraStyle(.window)
-    }
-
-    private var menuBarText: String {
-        guard model.status.inUse else { return "AVAILABLE" }
-        let waiting = model.status.queue.count
-        return waiting == 0 ? "IN USE" : "IN USE · \(waiting)"
     }
 
     private var statusHeading: String {
