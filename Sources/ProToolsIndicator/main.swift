@@ -24,14 +24,22 @@ final class IndicatorModel: ObservableObject {
 struct ProToolsIndicatorApp: App {
     @StateObject private var model = IndicatorModel()
 
+    private var statusColor: Color {
+        model.status.inUse
+            ? Color(red: 0.84, green: 0.00, blue: 0.10)
+            : Color(red: 0.03, green: 0.48, blue: 0.13)
+    }
+
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
     }
 
     var body: some Scene {
         MenuBarExtra {
-            Text(model.status.inUse ? "An agent is using Pro Tools" : "Pro Tools is available")
-                .disabled(true)
+            Text(model.status.inUse ? "PRO TOOLS IN USE" : "PRO TOOLS AVAILABLE")
+                .font(.system(size: 13, weight: .black, design: .rounded))
+                .foregroundStyle(statusColor)
+                .padding(.vertical, 2)
             Divider()
             Button("Mark In Use") { model.set(inUse: true) }
                 .disabled(model.status.inUse)
@@ -42,11 +50,16 @@ struct ProToolsIndicatorApp: App {
         } label: {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(model.status.inUse ? Color.red : Color.green)
+                    .fill(.white)
                     .frame(width: 9, height: 9)
-                Text("PT")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .overlay(Circle().strokeBorder(.black.opacity(0.28), lineWidth: 1))
+                Text(model.status.inUse ? "IN USE" : "AVAILABLE")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
             }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(statusColor, in: Capsule())
             .accessibilityLabel(model.status.inUse ? "Pro Tools in use" : "Pro Tools available")
         }
         .menuBarExtraStyle(.menu)
