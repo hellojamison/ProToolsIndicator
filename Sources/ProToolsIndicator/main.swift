@@ -169,6 +169,29 @@ struct ProToolsIndicatorApp: App {
         return Color(red: 0.03, green: 0.48, blue: 0.13)
     }
 
+    private var menuBarStatusImage: NSImage {
+        let color: NSColor
+        if model.status.inUse {
+            color = NSColor(calibratedRed: 0.98, green: 0.08, blue: 0.18, alpha: 1)
+        } else if !model.openProToolsVersions.isEmpty {
+            color = NSColor(calibratedRed: 1, green: 0.58, blue: 0.04, alpha: 1)
+        } else {
+            color = NSColor(calibratedRed: 0.05, green: 0.82, blue: 0.22, alpha: 1)
+        }
+
+        let image = NSImage(size: NSSize(width: 15, height: 15))
+        image.lockFocus()
+        NSColor.black.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: 15, height: 15)).fill()
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: 11, height: 11)).fill()
+        color.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 4, y: 4, width: 7, height: 7)).fill()
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
+    }
+
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
     }
@@ -291,13 +314,14 @@ struct ProToolsIndicatorApp: App {
                 Text("Save work you need, then close sessions you opened before releasing Pro Tools. If a session belongs to someone else or cannot be safely closed, leave it open and report that. Be kind, rewind.")
             }
         } label: {
-            Circle()
-                .fill(.black.opacity(0.95))
-                .frame(width: 14, height: 14)
-                .overlay(Circle().fill(.white).padding(1))
-                .overlay(Circle().fill(statusColor).padding(2.5))
-                .shadow(color: .black.opacity(0.7), radius: 1, x: 0, y: 1)
-                .padding(.horizontal, 4)
+            HStack(spacing: 6) {
+                Image(nsImage: menuBarStatusImage)
+                Text("PT")
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                    .offset(y: -1)
+            }
+            .padding(.horizontal, 4)
                 .accessibilityLabel(accessibilityStatus)
         }
         .menuBarExtraStyle(.window)
