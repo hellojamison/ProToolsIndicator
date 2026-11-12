@@ -10,10 +10,14 @@ func usage() -> Never {
       pt-indicator release <ticket> --closeout <outcome> [--reason "why the session must stay open"]
       pt-indicator cancel <ticket>
       pt-indicator status
+      pt-indicator check-session
 
     Identify yourself and include the exact current chat title, for example:
       pt-indicator request --minutes 5 "Codex: Improve menu bar icon"
     A specific --reason (8-280 characters) is required for either left-open closeout outcome.
+    Closed outcomes (no-session, saved-and-closed, no-save-needed-and-closed) are checked:
+    if Pro Tools is running, it is asked read-only whether a session is open, and the
+    release is refused while one is. Override the checker with PT_INDICATOR_SESSION_PROBE.
     """
     FileHandle.standardError.write(Data((help + "\n").utf8))
     exit(2)
@@ -37,6 +41,13 @@ func printStatus(_ status: IndicatorStatus) {
         }
     } else {
         print("Current agent: none (available)")
+        let running = ProToolsDetector.running()
+        if !running.isEmpty {
+            let names = running.map(\.name).joined(separator: ", ")
+            let verb = running.count == 1 ? "is" : "are"
+            let lastHolder = status.lastCloseout?.releasedBy.map { "; last holder: \($0)" } ?? ""
+            print("\(names) \(verb) running with no turn holder (left over?)\(lastHolder)")
+        }
     }
 
     if status.queue.isEmpty {
@@ -61,6 +72,64 @@ func printStatus(_ status: IndicatorStatus) {
         let timestamp = ISO8601DateFormatter().string(from: report.releasedAt)
         print("Last closeout: \(owner) — \(report.summary) (\(timestamp))")
     }
+}
+
+/// Asks Pro Tools, read-only via PTSL, whether a session is open. Never blocks more than ~11 s.
+func runSessionProbe(timeout: TimeInterval = 10) -> SessionProbeResult {
+    let environmentPath = ProcessInfo.processInfo.environment["PT_INDICATOR_SESSION_PROBE"]
+    let path = (environmentPath?.isEmpty == false) ? environmentPath! : SessionProbe.defaultExecutablePath
+    guard FileManager.default.isExecutableFile(atPath: path) else {
+        return .failed("session check tool not found at \(path)")
+    }
+
+    let scratch = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pt-indicator-probe-\(UUID().uuidString)", isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+    } catch {
+        return .failed("could not prepare session check: \(error.localizedDescription)")
+    }
+    defer { try? FileManager.default.removeItem(at: scratch) }
+    let stdoutURL = scratch.appendingPathComponent("stdout")
+    let stderrURL = scratch.appendingPathComponent("stderr")
+    FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+    FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: path)
+    process.arguments = ["current-session-path"]
+    process.standardInput = FileHandle.nullDevice
+    do {
+        process.standardOutput = try FileHandle(forWritingTo: stdoutURL)
+        process.standardError = try FileHandle(forWritingTo: stderrURL)
+        try process.run()
+    } catch {
+        return .failed("could not start session check: \(error.localizedDescription)")
+    }
+
+    let deadline = Date().addingTimeInterval(timeout)
+    while process.isRunning && Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    var timedOut = false
+    if process.isRunning {
+        timedOut = true
+        process.terminate()
+        let killDeadline = Date().addingTimeInterval(1)
+        while process.isRunning && Date() < killDeadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+    }
+
+    let stdoutText = (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? ""
+    let stderrText = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+    return SessionProbe.interpret(
+        exitCode: process.isRunning ? nil : process.terminationStatus,
+        stdout: stdoutText,
+        stderr: stderrText,
+        timedOut: timedOut
+    )
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -134,8 +203,33 @@ case "release":
         guard arguments[4] == "--reason" else { usage() }
         reason = arguments[5]
     }
+    let ticket = arguments[1]
     do {
-        try IndicatorStore.release(ticket: arguments[1], closeout: closeout, reason: reason)
+        _ = try IndicatorStore.validatedReason(reason, for: closeout)
+        // Fail fast before probing if this ticket does not hold the turn; release re-checks under the lock.
+        guard IndicatorStore.read().activeTicket == ticket else {
+            throw IndicatorStoreError.ticketDoesNotOwnTurn
+        }
+
+        // The session check runs outside the queue lock so other agents are never blocked on it.
+        let proToolsRunning = !ProToolsDetector.running().isEmpty
+        let probe: SessionProbeResult? = (closeout.claimsClosed && proToolsRunning) ? runSessionProbe() : nil
+        switch ReleaseGate.decide(outcome: closeout, proToolsRunning: proToolsRunning, probe: probe) {
+        case .refuse(let path):
+            fputs("pt-indicator: \(ReleaseGate.refusalMessage(openSessionPath: path, outcome: closeout))\n", stderr)
+            exit(4)
+        case .accept(let verification, let note):
+            if verification == .notVerified {
+                fputs("pt-indicator: warning: could not verify that no session is open (\(note ?? "unknown")); releasing with closure marked not verified.\n", stderr)
+            }
+            try IndicatorStore.release(
+                ticket: ticket,
+                closeout: closeout,
+                reason: reason,
+                verification: verification,
+                verificationNote: note
+            )
+        }
         printStatus(IndicatorStore.read())
     } catch {
         fail(error)
@@ -150,6 +244,25 @@ case "cancel":
         print("Queue request canceled")
     } catch {
         fail(error)
+    }
+
+case "check-session":
+    // Read-only: reports whether Pro Tools has a session open, the same check release uses.
+    guard arguments.count == 1 else { usage() }
+    let running = ProToolsDetector.running()
+    guard !running.isEmpty else {
+        print("Pro Tools is not running; no session is open.")
+        exit(0)
+    }
+    switch runSessionProbe() {
+    case .sessionOpen(let path):
+        print("Session open: \(path)")
+        exit(5)
+    case .noSession:
+        print("\(running.map(\.name).joined(separator: ", ")) is running with no session open.")
+    case .failed(let reason):
+        fputs("pt-indicator: could not check for an open session (\(reason))\n", stderr)
+        exit(6)
     }
 
 case "status", "queue":

@@ -48,18 +48,36 @@ public struct SessionCloseoutReport: Codable, Equatable, Sendable {
     public var releasedBy: String?
     public var outcome: SessionCloseout
     public var reason: String?
+    /// How the CLI checked a closed-session claim at release; nil when not checked.
+    public var verification: ClosureVerification?
+    /// Why closure could not be verified, when `verification` is `.notVerified`.
+    public var verificationNote: String?
     public var releasedAt: Date
 
-    public init(releasedBy: String?, outcome: SessionCloseout, reason: String? = nil, releasedAt: Date = .now) {
+    public init(
+        releasedBy: String?,
+        outcome: SessionCloseout,
+        reason: String? = nil,
+        verification: ClosureVerification? = nil,
+        verificationNote: String? = nil,
+        releasedAt: Date = .now
+    ) {
         self.releasedBy = releasedBy
         self.outcome = outcome
         self.reason = reason
+        self.verification = verification
+        self.verificationNote = verificationNote
         self.releasedAt = releasedAt
     }
 
     public var summary: String {
-        guard let reason, !reason.isEmpty else { return outcome.summary }
-        return "\(outcome.summary) Reason: \(reason)"
+        var text = outcome.summary
+        if let reason, !reason.isEmpty { text += " Reason: \(reason)" }
+        if let verification {
+            text += " \(verification.summary)"
+            if let verificationNote, !verificationNote.isEmpty { text += " (\(verificationNote))" }
+        }
+        return text
     }
 }
 
@@ -213,13 +231,25 @@ public enum IndicatorStore {
     }
 
     /// Releases a CLI-owned turn. A ticket is required when the current turn came from the CLI queue.
-    public static func release(ticket: String? = nil, closeout: SessionCloseout, reason: String? = nil) throws {
+    public static func release(
+        ticket: String? = nil,
+        closeout: SessionCloseout,
+        reason: String? = nil,
+        verification: ClosureVerification? = nil,
+        verificationNote: String? = nil
+    ) throws {
         let closeoutReason = try validatedReason(reason, for: closeout)
         try withLockedStatus { status in
             if status.activeTicket != ticket {
                 throw IndicatorStoreError.ticketDoesNotOwnTurn
             }
-            status.lastCloseout = SessionCloseoutReport(releasedBy: status.who, outcome: closeout, reason: closeoutReason)
+            status.lastCloseout = SessionCloseoutReport(
+                releasedBy: status.who,
+                outcome: closeout,
+                reason: closeoutReason,
+                verification: verification,
+                verificationNote: verificationNote
+            )
             Self.advance(&status)
         }
     }
@@ -275,7 +305,7 @@ public enum IndicatorStore {
         }
     }
 
-    private static func validatedReason(_ reason: String?, for closeout: SessionCloseout) throws -> String? {
+    public static func validatedReason(_ reason: String?, for closeout: SessionCloseout) throws -> String? {
         let normalized = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
         if closeout.requiresReason {
             guard let normalized, (8...280).contains(normalized.count) else {

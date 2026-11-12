@@ -8,8 +8,17 @@ swift build -c release
 
 APP="$ROOT/dist/ProToolsIndicator.app"
 mkdir -p "$APP/Contents/MacOS" "$ROOT/dist/bin"
-cp "$ROOT/.build/release/ProToolsIndicator" "$APP/Contents/MacOS/ProToolsIndicator"
-cp "$ROOT/.build/release/pt-indicator" "$ROOT/dist/bin/pt-indicator"
+# Swap binaries atomically: agents may be running the CLI (and the menu bar app may be
+# running) while this rebuilds. Copy beside the target, then rename over it, so running
+# processes keep their old file and new launches never see a half-written binary.
+install_atomic() {
+    tmp="$2.new.$$"
+    cp "$1" "$tmp"
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$2"
+}
+install_atomic "$ROOT/.build/release/ProToolsIndicator" "$APP/Contents/MacOS/ProToolsIndicator"
+install_atomic "$ROOT/.build/release/pt-indicator" "$ROOT/dist/bin/pt-indicator"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

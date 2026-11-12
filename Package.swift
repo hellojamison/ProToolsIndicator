@@ -12,5 +12,6 @@ let package = Package(
         .target(name: "IndicatorCore"),
         .executableTarget(name: "ProToolsIndicator", dependencies: ["IndicatorCore"]),
         .executableTarget(name: "PTIndicatorCLI", dependencies: ["IndicatorCore"]),
+        .testTarget(name: "IndicatorCoreTests", dependencies: ["IndicatorCore"]),
     ]
 )

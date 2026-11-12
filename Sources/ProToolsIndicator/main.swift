@@ -3,52 +3,6 @@ import Combine
 import IndicatorCore
 import SwiftUI
 
-struct RunningProToolsVersion: Identifiable, Equatable {
-    let processIdentifier: Int32
-    let name: String
-
-    var id: Int32 { processIdentifier }
-}
-
-enum ProToolsDetector {
-    private static let bundleIdentifiers: Set<String> = [
-        "com.avid.ProTools",
-        "com.avid.ProToolsDeveloper",
-    ]
-
-    static func detect(in applications: [NSRunningApplication]) -> [RunningProToolsVersion] {
-        applications.compactMap { application in
-            guard let identifier = application.bundleIdentifier,
-                  bundleIdentifiers.contains(identifier) || identifier.hasPrefix("com.avid.ProTools.") else {
-                return nil
-            }
-
-            return RunningProToolsVersion(
-                processIdentifier: application.processIdentifier,
-                name: displayName(for: application)
-            )
-        }
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    private static func displayName(for application: NSRunningApplication) -> String {
-        let bundleName = application.bundleURL?.deletingPathExtension().lastPathComponent
-        if let bundleName,
-           bundleName.localizedCaseInsensitiveContains("pro tools"),
-           bundleName.localizedCaseInsensitiveCompare("Pro Tools") != .orderedSame {
-            return bundleName
-        }
-
-        if let bundleURL = application.bundleURL,
-           let version = Bundle(url: bundleURL)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-           !version.isEmpty {
-            return "\(application.localizedName ?? "Pro Tools") \(version)"
-        }
-
-        return application.localizedName ?? bundleName ?? "Pro Tools"
-    }
-}
-
 @MainActor
 final class IndicatorModel: ObservableObject {
     @Published private(set) var status = IndicatorStore.read()
