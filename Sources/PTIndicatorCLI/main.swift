@@ -14,6 +14,8 @@ func usage() -> Never {
 
     Identify yourself and include the exact current chat title, for example:
       pt-indicator request --minutes 5 "Codex: Improve menu bar icon"
+    Request only when you are ready to use Pro Tools: finish builds and prep first,
+    and release during long rebuilds. --minutes is hands-on Pro Tools time only.
     A specific --reason (8-280 characters) is required for either left-open closeout outcome.
     Closed outcomes (no-session, saved-and-closed, no-save-needed-and-closed) are checked:
     if Pro Tools is running, it is asked read-only whether a session is open, and the
