@@ -174,20 +174,32 @@ final class IndicatorModel: ObservableObject {
 struct ProToolsIndicatorApp: App {
     @StateObject private var model = IndicatorModel()
 
-    private var statusColor: Color {
-        if model.status.inUse {
-            return Color(red: 0.84, green: 0.00, blue: 0.10)
+    init() {
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
+
+    var body: some Scene {
+        MenuBarExtra {
+            PopoverView(model: model)
+                .onAppear { model.refreshLoginItem() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(nsImage: menuBarStatusImage)
+                Text("PT")
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                    .offset(y: -1)
+            }
+            .padding(.horizontal, 4)
+            .accessibilityLabel(accessibilityStatus)
         }
-        return Color(red: 0.03, green: 0.48, blue: 0.13)
+        .menuBarExtraStyle(.window)
     }
 
     private var menuBarStatusImage: NSImage {
-        let color: NSColor
-        if model.status.inUse {
-            color = NSColor(calibratedRed: 0.98, green: 0.08, blue: 0.18, alpha: 1)
-        } else {
-            color = NSColor(calibratedRed: 0.05, green: 0.82, blue: 0.22, alpha: 1)
-        }
+        let color = model.status.inUse
+            ? NSColor(calibratedRed: 0.98, green: 0.08, blue: 0.18, alpha: 1)
+            : NSColor(calibratedRed: 0.05, green: 0.82, blue: 0.22, alpha: 1)
 
         let image = NSImage(size: NSSize(width: 15, height: 15))
         image.lockFocus()
@@ -202,187 +214,377 @@ struct ProToolsIndicatorApp: App {
         return image
     }
 
-    init() {
-        NSApplication.shared.setActivationPolicy(.accessory)
+    private var accessibilityStatus: String {
+        guard model.status.inUse else { return "Pro Tools available" }
+        let waiting = model.status.queue.count
+        return waiting == 0 ? "Pro Tools in use" : "Pro Tools in use, \(waiting) waiting"
     }
+}
 
-    var body: some Scene {
-        MenuBarExtra {
+// MARK: - Popover
+
+enum Palette {
+    static let inUse = Color(red: 1.00, green: 0.23, blue: 0.27)
+    static let available = Color(red: 0.19, green: 0.82, blue: 0.35)
+}
+
+struct PopoverView: View {
+    @ObservedObject var model: IndicatorModel
+
+    private var tint: Color { model.status.inUse ? Palette.inUse : Palette.available }
+
+    var body: some View {
+        GlassGroup {
             VStack(alignment: .leading, spacing: 10) {
-                Text(statusHeading)
-                    .font(.system(size: 13, weight: .black, design: .rounded))
-                    .foregroundStyle(statusColor)
-
-                Divider()
-                Text("CURRENT AGENT")
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                Text(model.status.inUse ? (model.status.who ?? "Unknown") : "None")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(model.status.inUse
-                     ? model.status.activeEstimatedMinutes.map { "ETA from agent: about \($0) min remaining" } ?? "ETA from agent: not reported"
-                     : "No active agent")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                if let openProTools = model.openProTools {
-                    Text("OPEN PRO TOOLS")
-                        .font(.system(size: 11, weight: .black, design: .rounded))
-                    Text(openProTools.name)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
+                statusCard
+                if let pending = model.pendingCloseout {
+                    reasonCard(for: pending)
                 }
-
-                if let report = model.status.lastCloseout {
-                    Text("LAST HANDOFF")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                    Text("\(report.releasedBy ?? "Unknown"): \(report.summary)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                if !model.status.queue.isEmpty {
+                    queueCard
                 }
-
-                TextField("Agent: exact chat title", text: $model.enteredName)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { model.requestAccess() }
-                Text("Include your agent name and current chat title so status identifies this conversation.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                TextField("Estimated Pro Tools time (minutes)", text: $model.estimateText)
-                    .textFieldStyle(.roundedBorder)
-
-                if !model.estimateText.isEmpty && model.estimatedMinutes == nil {
-                    Text("Enter a whole number from 1 to 1440.")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.red)
-                }
-
-                Button(model.status.inUse || !model.status.queue.isEmpty ? "Join Queue" : "Request Pro Tools") {
-                    model.requestAccess()
-                }
-                .disabled(!model.canMarkInUse)
-
-                if model.status.inUse {
-                    Button("Release and Call Next") { model.showingCloseout = true }
-                }
-
-                if let pendingCloseout = model.pendingCloseout {
-                    Divider()
-                    Text(pendingCloseout == .leftOpenNeedsSave
-                         ? "Why does this session need to stay open?"
-                         : "Why must this session stay open?")
-                        .font(.system(size: 11, weight: .semibold))
-                    TextField("Specific reason (8–280 characters)", text: $model.closeoutReason)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { model.confirmCloseout() }
-                    HStack {
-                        Button("Cancel") { model.cancelCloseoutReason() }
-                        Spacer()
-                        Button("Release turn") { model.confirmCloseout() }
-                            .disabled(!model.canConfirmCloseout)
-                    }
-                }
-
-                Divider()
-                Text("QUEUE · \(model.status.queue.count)")
-                    .font(.system(size: 11, weight: .black, design: .rounded))
-                if model.status.queue.isEmpty {
-                    Text("No agents waiting")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(model.status.queue.indices, id: \.self) { index in
-                        let request = model.status.queue[index]
-                        HStack(spacing: 6) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(index + 1). \(request.who)")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .lineLimit(1)
-                                let startETA = model.queueStartETAMinutes(for: index).map { "starts in about \($0) min" } ?? "start ETA unknown"
-                                let useEstimate = request.estimatedMinutes.map { "use about \($0) min" } ?? "use estimate unknown"
-                                Text("\(startETA) · \(useEstimate)")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 4)
-                            Button("Remove") { model.removeQueued(ticket: request.ticket) }
-                                .controlSize(.small)
-                        }
-                    }
-                    Text("Shorter estimates go first; ties stay FIFO. Requests without an estimate follow estimated requests.")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
+                requestCard
                 if let message = model.message {
                     Text(message)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                        .padding(.horizontal, 4)
                 }
+                footer
+            }
+            .padding(12)
+        }
+        .frame(width: 300)
+        .confirmationDialog("How did you leave Pro Tools?", isPresented: $model.showingCloseout, titleVisibility: .visible) {
+            Button("No session open") { model.beginCloseout(closeout: .noSession) }
+            Button("Saved and closed") { model.beginCloseout(closeout: .savedAndClosed) }
+            Button("Closed, nothing to save") { model.beginCloseout(closeout: .noSaveNeededAndClosed) }
+            Button("Left open, needs saving") { model.beginCloseout(closeout: .leftOpenNeedsSave) }
+            Button("Left open, nothing to save") { model.beginCloseout(closeout: .leftOpenNoSaveNeeded) }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Save and close your session first. Be kind, rewind.")
+        }
+    }
 
-                Divider()
-                Toggle("Open at Login", isOn: Binding(
+    // Status
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                StatusDot(color: tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.status.inUse ? "In Use" : "Available")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                Spacer(minLength: 0)
+                if model.status.inUse, let minutes = model.status.activeEstimatedMinutes {
+                    Pill(text: "\(minutes)m", systemImage: "clock")
+                }
+            }
+            if model.status.inUse {
+                Button {
+                    model.showingCloseout = true
+                } label: {
+                    Label("Release", systemImage: "arrow.uturn.backward")
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                .glassButton(prominent: true, tint: Palette.inUse)
+            }
+            if let report = model.status.lastCloseout {
+                HandoffLine(report: report)
+            }
+        }
+        .glassCard(tint: tint)
+    }
+
+    private var subtitle: String {
+        if model.status.inUse { return model.status.who ?? "Unknown" }
+        return model.openProTools?.name ?? "Pro Tools closed"
+    }
+
+    // Reason for leaving a session open
+
+    private func reasonCard(for closeout: SessionCloseout) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Why leave it open?")
+                .font(.headline)
+            TextField("Reason", text: $model.closeoutReason)
+                .softField()
+                .onSubmit { model.confirmCloseout() }
+            HStack {
+                Button("Cancel") { model.cancelCloseoutReason() }
+                    .glassButton()
+                Spacer()
+                Button("Release") { model.confirmCloseout() }
+                    .glassButton(prominent: true, tint: Palette.inUse)
+                    .disabled(!model.canConfirmCloseout)
+            }
+        }
+        .glassCard()
+    }
+
+    // Queue
+
+    private var queueCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Up Next").font(.headline)
+                Spacer()
+                Text("\(model.status.queue.count)")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(model.status.queue.enumerated()), id: \.element.ticket) { index, request in
+                HStack(spacing: 10) {
+                    Text("\(index + 1)")
+                        .font(.caption.weight(.bold).monospacedDigit())
+                        .frame(width: 20, height: 20)
+                        .background(.quaternary, in: Circle())
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(request.who)
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(queueDetail(index: index, request: request))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        model.removeQueued(ticket: request.ticket)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Remove")
+                }
+            }
+        }
+        .glassCard()
+    }
+
+    private func queueDetail(index: Int, request: QueueRequest) -> String {
+        let start = model.queueStartETAMinutes(for: index).map { "in \($0)m" } ?? "in ?"
+        let use = request.estimatedMinutes.map { "\($0)m" } ?? "?"
+        return "\(start) · \(use)"
+    }
+
+    // Request
+
+    private var requestCard: some View {
+        let busy = model.status.inUse || !model.status.queue.isEmpty
+        let badMinutes = !model.estimateText.isEmpty && model.estimatedMinutes == nil
+        return HStack(spacing: 6) {
+            TextField("Agent: chat title", text: $model.enteredName)
+                .softField()
+                .onSubmit { model.requestAccess() }
+            TextField("min", text: $model.estimateText)
+                .softField()
+                .frame(width: 48)
+                .foregroundStyle(badMinutes ? Palette.inUse : .primary)
+                .help("Minutes in Pro Tools (1–1440)")
+            Button {
+                model.requestAccess()
+            } label: {
+                Image(systemName: busy ? "text.badge.plus" : "arrow.up")
+                    .font(.body.weight(.semibold))
+            }
+            .glassButton(prominent: true, tint: .accentColor)
+            .disabled(!model.canMarkInUse)
+            .help(busy ? "Join queue" : "Request Pro Tools")
+        }
+        .glassCard()
+    }
+
+    // Footer
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Toggle("Open at login", isOn: Binding(
                     get: { model.opensAtLogin },
                     set: { model.setOpensAtLogin($0) }
                 ))
-                .toggleStyle(.checkbox)
-                .font(.system(size: 11, weight: .medium))
-                if let note = model.loginItemNote {
-                    Text(note)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(.caption)
+                Spacer()
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
                 }
-                Button("Quit") { NSApplication.shared.terminate(nil) }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Quit")
             }
+            if let note = model.loginItemNote {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+// MARK: - Pieces
+
+struct StatusDot: View {
+    let color: Color
+
+    var body: some View {
+        ZStack {
+            Circle().fill(color.opacity(0.25)).frame(width: 30, height: 30)
+            Circle()
+                .fill(color.gradient)
+                .frame(width: 14, height: 14)
+                .shadow(color: color.opacity(0.9), radius: 6)
+        }
+    }
+}
+
+struct Pill: View {
+    let text: String
+    let systemImage: String
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.semibold).monospacedDigit())
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .glassCapsule()
+            .help("Agent's estimate of time left")
+    }
+}
+
+struct HandoffLine: View {
+    let report: SessionCloseoutReport
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .foregroundStyle(iconColor)
+            Text("Last: \(outcome)")
+                .lineLimit(1)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .help("\(report.releasedBy ?? "Unknown"): \(report.summary)")
+    }
+
+    private var outcome: String {
+        switch report.outcome {
+        case .noSession: "no session"
+        case .savedAndClosed: "saved & closed"
+        case .noSaveNeededAndClosed: "closed"
+        case .leftOpenNeedsSave: "left open, needs save"
+        case .leftOpenNoSaveNeeded: "left open"
+        }
+    }
+
+    private var icon: String {
+        if report.outcome.requiresReason { return "exclamationmark.triangle.fill" }
+        return report.verification == .notVerified ? "questionmark.circle" : "checkmark.seal.fill"
+    }
+
+    private var iconColor: Color {
+        if report.outcome.requiresReason { return .orange }
+        return report.verification == .notVerified ? .secondary : Palette.available
+    }
+}
+
+// MARK: - Glass (Liquid Glass on macOS 26+, frosted material before)
+
+struct GlassGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 10) { content }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func softField() -> some View {
+        textFieldStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    func glassCard(tint: Color? = nil) -> some View {
+        modifier(GlassCardModifier(tint: tint))
+    }
+
+    func glassCapsule() -> some View {
+        modifier(GlassCapsuleModifier())
+    }
+
+    func glassButton(prominent: Bool = false, tint: Color? = nil) -> some View {
+        modifier(GlassButtonModifier(prominent: prominent, tint: tint))
+    }
+}
+
+struct GlassCardModifier: ViewModifier {
+    let tint: Color?
+
+    func body(content: Content) -> some View {
+        let padded = content
             .padding(12)
-            .frame(width: 260)
-            .onAppear { model.refreshLoginItem() }
-            .confirmationDialog(
-                "Close out your Pro Tools turn",
-                isPresented: $model.showingCloseout,
-                titleVisibility: .visible
-            ) {
-                Button("No Session Open") { model.beginCloseout(closeout: .noSession) }
-                Button("Saved and Closed") { model.beginCloseout(closeout: .savedAndClosed) }
-                Button("No Save Needed; Closed") { model.beginCloseout(closeout: .noSaveNeededAndClosed) }
-                Button("Left Open; Needs Saving") { model.beginCloseout(closeout: .leftOpenNeedsSave) }
-                Button("Left Open; No Save Needed") { model.beginCloseout(closeout: .leftOpenNoSaveNeeded) }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Save needed work, close sessions you opened, and verify they are closed before release. Preserve other people's sessions and uncertain unsaved work. Leaving a session open requires a specific reason. Be kind, rewind.")
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(nsImage: menuBarStatusImage)
-                Text("PT")
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Color(nsColor: .labelColor))
-                    .offset(y: -1)
-            }
-            .padding(.horizontal, 4)
-                .accessibilityLabel(accessibilityStatus)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        if #available(macOS 26.0, *) {
+            padded.glassEffect(
+                tint.map { Glass.regular.tint($0.opacity(0.18)) } ?? .regular,
+                in: .rect(cornerRadius: 18)
+            )
+        } else {
+            padded
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background((tint ?? .clear).opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .menuBarExtraStyle(.window)
     }
+}
 
-    private var statusHeading: String {
-        if model.status.inUse { return "PRO TOOLS IN USE" }
-        return "PRO TOOLS AVAILABLE"
-    }
-
-    private var accessibilityStatus: String {
-        guard model.status.inUse else {
-            guard let openProTools = model.openProTools else { return "Pro Tools available" }
-            return "Pro Tools open: \(openProTools.name)"
+struct GlassCapsuleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular, in: .capsule)
+        } else {
+            content.background(.thinMaterial, in: Capsule())
         }
-        let waiting = model.status.queue.count
-        let reservation = waiting == 0
-            ? "Pro Tools in use"
-            : "Pro Tools in use, \(waiting) waiting in queue"
-        guard let openProTools = model.openProTools else { return reservation }
-        return "\(reservation); open: \(openProTools.name)"
+    }
+}
+
+struct GlassButtonModifier: ViewModifier {
+    let prominent: Bool
+    let tint: Color?
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if prominent {
+                content.buttonStyle(.glassProminent).tint(tint)
+            } else {
+                content.buttonStyle(.glass)
+            }
+        } else {
+            if prominent {
+                content.buttonStyle(.borderedProminent).tint(tint)
+            } else {
+                content.buttonStyle(.bordered)
+            }
+        }
     }
 }
