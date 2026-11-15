@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import IndicatorCore
+import ServiceManagement
 import SwiftUI
 
 @MainActor
@@ -136,6 +137,36 @@ final class IndicatorModel: ObservableObject {
 
     private func refresh() {
         status = IndicatorStore.read()
+    }
+
+    // MARK: Open at login
+
+    @Published private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
+    @Published private(set) var loginItemNote: String?
+
+    func refreshLoginItem() {
+        let status = SMAppService.mainApp.status
+        opensAtLogin = status == .enabled
+        loginItemNote = status == .requiresApproval
+            ? "Allow Pro Tools Indicator in System Settings > General > Login Items."
+            : nil
+    }
+
+    func setOpensAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            refreshLoginItem()
+            if SMAppService.mainApp.status == .requiresApproval {
+                SMAppService.openSystemSettingsLoginItems()
+            }
+        } catch {
+            refreshLoginItem()
+            loginItemNote = "Could not change Open at Login: \(error.localizedDescription)"
+        }
     }
 }
 
@@ -294,10 +325,23 @@ struct ProToolsIndicatorApp: App {
                 }
 
                 Divider()
+                Toggle("Open at Login", isOn: Binding(
+                    get: { model.opensAtLogin },
+                    set: { model.setOpensAtLogin($0) }
+                ))
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11, weight: .medium))
+                if let note = model.loginItemNote {
+                    Text(note)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }
             .padding(12)
             .frame(width: 260)
+            .onAppear { model.refreshLoginItem() }
             .confirmationDialog(
                 "Close out your Pro Tools turn",
                 isPresented: $model.showingCloseout,

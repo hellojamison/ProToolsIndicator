@@ -11,6 +11,8 @@ Requires macOS 13 or later and Swift 6.
 open dist/ProToolsIndicator.app
 ```
 
+To start the indicator automatically when you log in, tick **Open at Login** in its menu bar popover. macOS registers the app at its current path (`dist/ProToolsIndicator.app`), so rebuilding keeps it working; moving or deleting `dist/` does not.
+
 In another terminal, request access and identify the agent plus the exact current chat title:
 
 ```sh
