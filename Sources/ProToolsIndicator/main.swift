@@ -7,7 +7,7 @@ import SwiftUI
 @MainActor
 final class IndicatorModel: ObservableObject {
     @Published private(set) var status = IndicatorStore.read()
-    @Published private(set) var openProToolsVersions = ProToolsDetector.detect(
+    @Published private(set) var openProTools = ProToolsDetector.detect(
         in: NSWorkspace.shared.runningApplications
     )
     @Published var enteredName = ""
@@ -30,7 +30,7 @@ final class IndicatorModel: ObservableObject {
         runningApplicationsObserver = NSWorkspace.shared.publisher(for: \.runningApplications)
             .receive(on: RunLoop.main)
             .sink { [weak self] applications in
-                self?.openProToolsVersions = ProToolsDetector.detect(in: applications)
+                self?.openProTools = ProToolsDetector.detect(in: applications)
             }
     }
 
@@ -224,14 +224,12 @@ struct ProToolsIndicatorApp: App {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
 
-                if !model.openProToolsVersions.isEmpty {
-                    Text("OPEN PRO TOOLS VERSIONS")
+                if let openProTools = model.openProTools {
+                    Text("OPEN PRO TOOLS")
                         .font(.system(size: 11, weight: .black, design: .rounded))
-                    ForEach(model.openProToolsVersions) { version in
-                        Text(version.name)
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                    }
+                    Text(openProTools.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
                 }
 
                 if let report = model.status.lastCloseout {
@@ -372,20 +370,19 @@ struct ProToolsIndicatorApp: App {
 
     private var statusHeading: String {
         if model.status.inUse { return "PRO TOOLS IN USE" }
-        return model.openProToolsVersions.isEmpty ? "PRO TOOLS AVAILABLE" : "PRO TOOLS OPEN"
+        return model.openProTools == nil ? "PRO TOOLS AVAILABLE" : "PRO TOOLS OPEN"
     }
 
     private var accessibilityStatus: String {
         guard model.status.inUse else {
-            if model.openProToolsVersions.isEmpty { return "Pro Tools available" }
-            let names = model.openProToolsVersions.map(\.name).joined(separator: ", ")
-            return "Pro Tools open: \(names)"
+            guard let openProTools = model.openProTools else { return "Pro Tools available" }
+            return "Pro Tools open: \(openProTools.name)"
         }
         let waiting = model.status.queue.count
         let reservation = waiting == 0
             ? "Pro Tools in use"
             : "Pro Tools in use, \(waiting) waiting in queue"
-        guard !model.openProToolsVersions.isEmpty else { return reservation }
-        return "\(reservation); open: \(model.openProToolsVersions.map(\.name).joined(separator: ", "))"
+        guard let openProTools = model.openProTools else { return reservation }
+        return "\(reservation); open: \(openProTools.name)"
     }
 }

@@ -43,12 +43,9 @@ func printStatus(_ status: IndicatorStatus) {
         }
     } else {
         print("Current agent: none (available)")
-        let running = ProToolsDetector.running()
-        if !running.isEmpty {
-            let names = running.map(\.name).joined(separator: ", ")
-            let verb = running.count == 1 ? "is" : "are"
+        if let running = ProToolsDetector.running() {
             let lastHolder = status.lastCloseout?.releasedBy.map { "; last holder: \($0)" } ?? ""
-            print("\(names) \(verb) running with no turn holder (left over?)\(lastHolder)")
+            print("\(running.name) is running with no turn holder (left over?)\(lastHolder)")
         }
     }
 
@@ -214,7 +211,7 @@ case "release":
         }
 
         // The session check runs outside the queue lock so other agents are never blocked on it.
-        let proToolsRunning = !ProToolsDetector.running().isEmpty
+        let proToolsRunning = ProToolsDetector.running() != nil
         let probe: SessionProbeResult? = (closeout.claimsClosed && proToolsRunning) ? runSessionProbe() : nil
         switch ReleaseGate.decide(outcome: closeout, proToolsRunning: proToolsRunning, probe: probe) {
         case .refuse(let path):
@@ -251,8 +248,7 @@ case "cancel":
 case "check-session":
     // Read-only: reports whether Pro Tools has a session open, the same check release uses.
     guard arguments.count == 1 else { usage() }
-    let running = ProToolsDetector.running()
-    guard !running.isEmpty else {
+    guard let running = ProToolsDetector.running() else {
         print("Pro Tools is not running; no session is open.")
         exit(0)
     }
@@ -261,7 +257,7 @@ case "check-session":
         print("Session open: \(path)")
         exit(5)
     case .noSession:
-        print("\(running.map(\.name).joined(separator: ", ")) is running with no session open.")
+        print("\(running.name) is running with no session open.")
     case .failed(let reason):
         fputs("pt-indicator: could not check for an open session (\(reason))\n", stderr)
         exit(6)

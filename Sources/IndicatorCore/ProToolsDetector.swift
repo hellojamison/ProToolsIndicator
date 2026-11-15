@@ -1,6 +1,7 @@
 import AppKit
 
-public struct RunningProToolsVersion: Identifiable, Equatable, Sendable {
+/// The running Pro Tools app. Pro Tools allows only one copy to run at a time.
+public struct RunningProTools: Identifiable, Equatable, Sendable {
     public let processIdentifier: Int32
     public let name: String
 
@@ -13,23 +14,23 @@ public enum ProToolsDetector {
         "com.avid.ProToolsDeveloper",
     ]
 
-    public static func detect(in applications: [NSRunningApplication]) -> [RunningProToolsVersion] {
-        applications.compactMap { application in
+    public static func detect(in applications: [NSRunningApplication]) -> RunningProTools? {
+        applications.lazy.compactMap { application -> RunningProTools? in
             guard let identifier = application.bundleIdentifier,
                   bundleIdentifiers.contains(identifier) || identifier.hasPrefix("com.avid.ProTools.") else {
                 return nil
             }
 
-            return RunningProToolsVersion(
+            return RunningProTools(
                 processIdentifier: application.processIdentifier,
                 name: displayName(for: application)
             )
         }
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        .first
     }
 
-    /// Running Pro Tools applications right now (same detection the menu bar app uses).
-    public static func running() -> [RunningProToolsVersion] {
+    /// The running Pro Tools app right now, if any (same detection the menu bar app uses).
+    public static func running() -> RunningProTools? {
         detect(in: NSWorkspace.shared.runningApplications)
     }
 
