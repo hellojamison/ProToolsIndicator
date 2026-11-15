@@ -370,7 +370,7 @@ struct ProToolsIndicatorApp: App {
 
     private var statusHeading: String {
         if model.status.inUse { return "PRO TOOLS IN USE" }
-        return model.openProTools == nil ? "PRO TOOLS AVAILABLE" : "PRO TOOLS OPEN"
+        return "PRO TOOLS AVAILABLE"
     }
 
     private var accessibilityStatus: String {

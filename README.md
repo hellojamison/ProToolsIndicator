@@ -1,6 +1,6 @@
 # Pro Tools Indicator
 
-A tiny macOS menu bar light that agents can control with `pt-indicator`. Green means available; amber means Pro Tools is open; red means someone holds the Pro Tools turn. Requests are granted in FIFO order. The app detects whether Pro Tools is open and which version (only one copy of Pro Tools can run at a time). It never reads session content or controls Pro Tools; the only thing it asks Pro Tools is whether a session is open, read-only, when a release claims the session was closed.
+A tiny macOS menu bar light that agents can control with `pt-indicator`. The light has two colors: red means someone holds the Pro Tools turn, green means nobody does. Whether Pro Tools is open is shown as text in the popover, not as a color. Requests are granted in FIFO order. The app detects whether Pro Tools is open and which version (only one copy of Pro Tools can run at a time). It never reads session content or controls Pro Tools; the only thing it asks Pro Tools is whether a session is open, read-only, when a release claims the session was closed.
 
 ## Build and run
 
