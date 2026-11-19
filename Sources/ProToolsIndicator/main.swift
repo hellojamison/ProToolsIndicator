@@ -183,41 +183,61 @@ struct ProToolsIndicatorApp: App {
             PopoverView(model: model)
                 .onAppear { model.refreshLoginItem() }
         } label: {
-            HStack(spacing: 6) {
-                Image(nsImage: menuBarStatusImage)
-                Text("PT")
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Color(nsColor: .labelColor))
-                    .offset(y: -1)
-            }
-            .padding(.horizontal, 4)
-            .accessibilityLabel(accessibilityStatus)
+            Image(nsImage: MenuBarLabel.image(inUse: model.status.inUse))
+                .accessibilityLabel(accessibilityStatus)
         }
         .menuBarExtraStyle(.window)
-    }
-
-    private var menuBarStatusImage: NSImage {
-        let color = model.status.inUse
-            ? NSColor(calibratedRed: 0.98, green: 0.08, blue: 0.18, alpha: 1)
-            : NSColor(calibratedRed: 0.05, green: 0.82, blue: 0.22, alpha: 1)
-
-        let image = NSImage(size: NSSize(width: 15, height: 15))
-        image.lockFocus()
-        NSColor.black.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: 15, height: 15)).fill()
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: 11, height: 11)).fill()
-        color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 4, y: 4, width: 7, height: 7)).fill()
-        image.unlockFocus()
-        image.isTemplate = false
-        return image
     }
 
     private var accessibilityStatus: String {
         guard model.status.inUse else { return "Pro Tools available" }
         let waiting = model.status.queue.count
         return waiting == 0 ? "Pro Tools in use" : "Pro Tools in use, \(waiting) waiting"
+    }
+}
+
+// MARK: - Menu bar label
+
+/// Draws the status light and "PT" as one image so both share an exact vertical center.
+enum MenuBarLabel {
+    static func image(inUse: Bool) -> NSImage {
+        let light = inUse
+            ? NSColor(calibratedRed: 0.98, green: 0.08, blue: 0.18, alpha: 1)
+            : NSColor(calibratedRed: 0.05, green: 0.82, blue: 0.22, alpha: 1)
+
+        let base = NSFont.systemFont(ofSize: 11, weight: .heavy)
+        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 11) } ?? base
+        let text = "PT" as NSString
+        let textWidth = ceil(text.size(withAttributes: [.font: font]).width)
+
+        let dot: CGFloat = 15
+        let gap: CGFloat = 4
+        let height: CGFloat = 16
+        let size = NSSize(width: dot + gap + textWidth, height: height)
+
+        let image = NSImage(size: size, flipped: false) { _ in
+            let midY = height / 2
+            let ring = NSRect(x: 0, y: midY - dot / 2, width: dot, height: dot)
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: ring).fill()
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: ring.insetBy(dx: 2, dy: 2)).fill()
+            light.setFill()
+            NSBezierPath(ovalIn: ring.insetBy(dx: 4, dy: 4)).fill()
+
+            // Center the capital letters on the light: put the baseline half a cap height below the
+            // middle. CoreText draws at an exact baseline, unlike NSString.draw(at:).
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            let line = CTLineCreateWithAttributedString(NSAttributedString(
+                string: text as String,
+                attributes: [.font: font, .foregroundColor: NSColor.labelColor]
+            ))
+            context.textPosition = CGPoint(x: dot + gap, y: midY - font.capHeight / 2)
+            CTLineDraw(line, context)
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 }
 
