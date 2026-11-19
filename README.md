@@ -58,7 +58,7 @@ When you release with a closed outcome (`no-session`, `saved-and-closed` or `no-
 - Pro Tools is not running, or Pro Tools reports no open session: the release goes through and status shows it as verified.
 - The check is missing, fails or times out: the release goes through, and status shows `Closure not verified.` with the reason.
 
-`pt-indicator check-session` runs the same read-only check on its own: it prints the open session path (exit 5), says no session is open (exit 0), or says the check failed (exit 6). When nobody holds the turn but Pro Tools is running, `status` adds a line such as `Pro Tools 26.10.0 is running with no turn holder (left over?); last holder: ...`.
+`pt-indicator check-session` runs the same read-only check on its own: it prints the open session path (exit 5), says no session is open (exit 0), or says the check failed (exit 6). When nobody holds the turn but Pro Tools is running, `status` adds a line such as `Pro Tools 25.12.2 is running with no turn holder (left over?); last holder: ...`.
 
 Before releasing:
 
