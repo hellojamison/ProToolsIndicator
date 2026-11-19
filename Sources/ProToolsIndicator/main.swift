@@ -205,8 +205,7 @@ enum MenuBarLabel {
             ? NSColor(calibratedRed: 0.98, green: 0.08, blue: 0.18, alpha: 1)
             : NSColor(calibratedRed: 0.05, green: 0.82, blue: 0.22, alpha: 1)
 
-        let base = NSFont.systemFont(ofSize: 11, weight: .heavy)
-        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 11) } ?? base
+        let font = NSFont.systemFont(ofSize: 13, weight: .bold)
         let text = "PT" as NSString
         let textWidth = ceil(text.size(withAttributes: [.font: font]).width)
 
